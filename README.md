@@ -47,17 +47,7 @@
 #### 3. 生成营销文案和风格化图片
 ![图生图结果](./docs/images/image-to-image-result.png)
 
-</div>
 
-### 历史记录
-
-<div align="center">
-
-![历史记录](./docs/images/history-view.png)
-
-</div>
-
-> 💡 **提示**: 以上示例图片需要您自行添加。将截图保存到 `docs/images/` 目录，并按照上述命名规范命名即可。
 
 ## 技术栈
 
