@@ -37,7 +37,7 @@
       <div class="input-section">
         <textarea
           v-model="topic"
-          placeholder="输入你的创意主题，例如：如何选择适合自己的咖啡豆"
+          placeholder="输入你的创意主题，例如：西安周末旅游攻略"
           class="topic-input"
           rows="4"
         ></textarea>
