@@ -43,12 +43,6 @@
 #### 2. AI分析产品特征
 ![产品分析](./docs/images/image-analysis.png)
 
-#### 3. 生成营销文案和风格化图片
-![图生图结果](./docs/images/image-to-image-result.png)
-
-</div>
-
-### 历史记录
 
 <div align="center">
 
