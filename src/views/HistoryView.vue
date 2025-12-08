@@ -60,12 +60,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { getUserHistory, getCurrentUser, registerUser, loginUser } from '../services/storage'
 import { GeneratedResult } from '../types'
 import HistoryDetailModal from '../components/HistoryDetailModal.vue'
 import { PageContainer, PageHeader } from '../components/layout'
 
+const route = useRoute()
 const loading = ref(false)
 const history = ref<GeneratedResult[]>([])
 const detailModalVisible = ref(false)
@@ -168,6 +170,14 @@ const viewDetail = async (item: GeneratedResult) => {
 
 onMounted(() => {
   loadHistory()
+})
+
+// 监听路由变化，当从其他页面返回时重新加载历史记录
+watch(() => route.path, (newPath) => {
+  if (newPath === '/history') {
+    console.log('=== 路由切换到历史记录页面，重新加载 ===')
+    loadHistory()
+  }
 })
 </script>
 

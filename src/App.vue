@@ -54,7 +54,7 @@
           </div>
           <div>
             <div style="font-size: 14px; font-weight: 600;">红流云创</div>
-            <div style="font-size: 12px; color: var(--text-sub);">v2.0</div>
+            <div style="font-size: 12px; color: var(--text-sub);">v2.1</div>
           </div>
         </div>
       </div>
@@ -69,7 +69,7 @@
         <footer v-if="route.path !== '/'" class="global-footer">
           <div class="footer-content">
             <div class="footer-text">
-              © 2025 红流云创 v2.0
+              © 2025 红流云创 v2.1
             </div>
             <div class="footer-license">
               AI 驱动的图文创作助手

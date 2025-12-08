@@ -1,10 +1,10 @@
-# 红流云创 v2.0 —— 别再用命P图了，AI替你上班
+# 红流云创 v2.1 —— 别再用命P图了，AI替你上班
 
 <div align="center">
 
 **运营人员的福音-AI图文创作助手**
 
-[功能特性](#功能特性) • [快速开始](#快速开始) • [Docker部署](#docker部署) • [贡献指南](./CONTRIBUTING.md) • [更新日志](./CHANGELOG.md)
+[功能特性](#功能特性) • [快速开始](#快速开始) • [服务器部署](#服务器部署) • [Docker部署](#docker部署) • [贡献指南](./CONTRIBUTING.md) • [更新日志](./CHANGELOG.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js)](https://vuejs.org/)
@@ -14,13 +14,13 @@
 
 ## 项目简介
 
-### 红流云创 v2.0 —— 别再用命P图了，AI替你上班
+### 红流云创 v2.1 —— 别再用命P图了，AI替你上班
 
 还在为小红书爆文熬夜磕图、文案删了又改？  
 一张图扣一天，眼快瞎了流量还挂零？  
 别修仙了，你缺的不是肝，是像样的工具。
 
-**红流云创**专治各种“创作内耗”，用AI把小红书图文流水线塞进键盘里：  
+**红流云创**专治各种"创作内耗"，用AI把小红书图文流水线塞进键盘里：  
 
 - **🧠 文生图+文**：输入一个念头，AI直接吐出一套完整图文大纲+配图建议，连海报都给你批量生成好。别想了，你就是 prompt 工程师。  
 - **🖼️ 图生图文**：丢一张产品实拍图进来，AI当场解构卖点、编好营销话术，再甩你几张直接能发的风格化配图。别P了，让AI卷。  
@@ -28,18 +28,19 @@
 我们负责自动化，你负责发。  
 流量不该用命换，效率才是正经事。
 
-
 ## 效果展示
 
 ### 文本生成图文模式
 
 <div align="center">
 
+#### 1. 输入主题生成大纲
+![文本生成大纲](./docs/images/text-to-outline.png)
 
-#### 1. 编辑大纲和配图建议
+#### 2. 编辑大纲和配图建议
 ![编辑大纲](./docs/images/edit-outline.png)
 
-#### 2. 批量生成海报图片
+#### 3. 批量生成海报图片
 ![生成结果](./docs/images/text-result.png)
 
 </div>
@@ -54,8 +55,20 @@
 #### 2. AI分析产品特征
 ![产品分析](./docs/images/image-analysis.png)
 
+#### 3. 生成营销文案和风格化图片
+![图生图结果](./docs/images/image-to-image-result.png)
 
 </div>
+
+### 历史记录
+
+<div align="center">
+
+![历史记录](./docs/images/history-view.png)
+
+</div>
+
+> 💡 **提示**: 以上示例图片需要您自行添加。将截图保存到 `docs/images/` 目录，并按照上述命名规范命名即可。
 
 ## 技术栈
 
@@ -135,6 +148,41 @@ npm run build
 
 构建产物将输出到 `dist/` 目录。
 
+## 服务器部署
+
+**📚 详细部署指南**: 请查看 [服务器部署文档](./docs/DEPLOYMENT.md)，包含以下部署方案：
+
+- 🐳 **Docker 部署**（推荐，最简单）
+- 🌐 **Nginx 直接部署**（性能最佳）
+- 🟢 **Node.js + PM2 部署**（便于扩展）
+- 🔒 **Nginx + HTTPS 部署**（生产环境推荐）
+
+### 快速部署（Docker）
+
+```bash
+# 1. 上传项目到服务器
+# 2. 进入项目目录
+cd /opt/redflow-v2
+
+# 3. 使用 Docker Compose 一键部署
+docker-compose -f docker-compose.nginx.yml up -d
+
+# 4. 访问应用
+# http://your-server-ip:8080
+```
+
+### 快速部署脚本
+
+```bash
+# 使用部署脚本（自动构建并部署）
+chmod +x deploy.sh
+./deploy.sh docker    # Docker 部署
+./deploy.sh nginx     # Nginx 部署
+./deploy.sh node      # Node.js 部署
+```
+
+> 💡 **提示**: 部署后，每个用户需要在浏览器中配置自己的 API 密钥。如需统一管理 API 密钥，请参考部署文档中的"后端 API 代理"方案。
+
 ## Docker部署
 
 项目支持两种Docker部署方式，详细说明请参考 [Docker部署文档](./docker/README.md)。
@@ -176,7 +224,9 @@ docker run -d -p 3000:3000 --name redflow-node redflow-node
 - 输入创意主题
 - AI生成小红书风格图文大纲
 - 支持多页面内容生成
-- 自动生成配图（待实现）
+- 批量生成海报图片
+- 编辑大纲和配图建议
+- 一键下载完整内容（文字+图片）
 
 ### 图生图模式
 - 上传产品图片
@@ -187,8 +237,9 @@ docker run -d -p 3000:3000 --name redflow-node redflow-node
 
 ### 历史记录
 - 自动保存创作历史
-- 查看历史作品
+- 查看历史作品详情
 - 本地存储（最多20条）
+- 优化保存逻辑，确保数据完整性
 
 ### 系统设置
 - API密钥配置
@@ -219,6 +270,8 @@ docker run -d -p 3000:3000 --name redflow-node redflow-node
 - [x] 完善UI组件库
 - [x] Docker部署支持
 - [x] 单元测试框架
+- [x] 一键下载功能（文字+图片）
+- [x] 完成提示模态框
 - [ ] 图片生成流程优化
 - [ ] 深色模式支持
 
@@ -292,7 +345,6 @@ A: 请检查：
 
 - [更新日志](./CHANGELOG.md)
 - [贡献指南](./CONTRIBUTING.md)
+- [服务器部署文档](./docs/DEPLOYMENT.md)
 - [Docker部署文档](./docker/README.md)
 - [问题反馈](https://github.com/your-username/redflow-v2/issues)
-
-

@@ -224,6 +224,13 @@ const startGeneration = () => {
     alert('请至少添加一页内容')
     return
   }
+  // 清除之前的recordId，确保这是新任务
+  store.recordId = null
+  // 重置进度状态，确保从idle开始
+  store.progress.status = 'idle'
+  store.progress.current = 0
+  // 清除之前的图片
+  store.images = []
   router.push('/text-generate')
 }
 </script>

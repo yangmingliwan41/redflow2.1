@@ -5,17 +5,17 @@
         <h1 class="page-title">创作完成</h1>
         <p class="page-subtitle">恭喜！你的小红书图文已生成完毕，共 {{ store.images.length }} 张</p>
       </div>
-      <div style="display: flex; gap: 12px;">
-        <button class="btn" @click="startOver" style="background: white; border: 1px solid var(--border-color);">
-          再来一篇
-        </button>
-        <button class="btn btn-primary" @click="downloadAll">
+      <div class="header-actions">
+        <button class="btn btn-download-all" @click="downloadAllContent" title="一键下载文字和图片">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
             <line x1="12" y1="15" x2="12" y2="3"></line>
           </svg>
           一键下载
+        </button>
+        <button class="btn" @click="startOver" style="background: white; border: 1px solid var(--border-color);">
+          再来一篇
         </button>
       </div>
     </div>
@@ -190,50 +190,95 @@ const saveProjectInfo = async () => {
 
 // 确保保存到历史记录
 onMounted(async () => {
-  if (store.stage === 'result' && !store.recordId) {
-    const user = getCurrentUser()
-    if (user && store.images.length > 0) {
-      // 自动生成项目名称（如果还没有）
-      if (!store.projectName) {
-        store.setProjectName(store.topic.length > 20 ? store.topic.substring(0, 20) + '...' : store.topic)
-      }
-      
-      // 确保所有图片都已生成（只保存成功生成的图片）
-      const completedImages = store.images.filter(img => img.status === 'done' && img.url)
-      
-      if (completedImages.length === 0) {
-        console.warn('⚠️ ResultView: 没有成功生成的图片，跳过历史记录保存')
-        return
-      }
-      
-      const historyItem = {
-        id: store.recordId || uuidv4(), // 使用已有的recordId，避免重复创建
-        topic: store.topic,
-        projectName: store.projectName,
-        projectDescription: store.projectDescription,
-        outline: store.outline.raw,
-        pages: store.outline.pages.map((page, idx) => ({
-          index: page.index,
-          title: page.type === 'cover' ? '封面' : `第${idx}页`,
-          content: page.content,
-          imageUrl: store.images.find(img => img.index === page.index && img.status === 'done')?.url, // 只保存成功生成的图片
-          imagePrompt: (page as any).imagePrompt || undefined
-        })),
-        originalImageUrl: completedImages[0]?.url || '',
-        generatedImageUrl: completedImages[0]?.url || '', // 确保包含生成的图片
-        status: 'COMPLETED' as const,
-        createdAt: Date.now(),
-        userId: user.id,
-        mode: ProcessingMode.TEXT_TO_IMAGE // 使用枚举值
-      }
-      
-      console.log('ResultView: 保存历史记录', historyItem)
-      await saveHistoryItem(user.id, historyItem)
-      console.log('ResultView: 历史记录保存完成')
-      store.recordId = historyItem.id
+  // 无论是否有recordId，都尝试保存/更新历史记录，确保数据完整性
+  const user = getCurrentUser()
+  
+  if (!user) {
+    console.warn('⚠️ ResultView: 未找到用户，无法保存历史记录')
+    // 尝试创建默认用户
+    try {
+      const { registerUser, loginUser } = await import('../services/storage')
+      const defaultUser = registerUser('default_user', 'default@example.com')
+      console.log('已创建默认用户:', defaultUser.id)
+      loginUser(defaultUser.email)
+      // 递归调用，使用新创建的用户
+      await saveHistoryToResultView(defaultUser.id)
+    } catch (e) {
+      console.error('创建默认用户失败:', e)
     }
+    return
+  }
+  
+  if (store.images.length > 0) {
+    await saveHistoryToResultView(user.id)
+  } else {
+    console.warn('⚠️ ResultView: 没有图片数据，跳过历史记录保存')
   }
 })
+
+// 提取保存历史记录的逻辑
+const saveHistoryToResultView = async (userId: string) => {
+  try {
+    // 自动生成项目名称（如果还没有）
+    if (!store.projectName) {
+      store.setProjectName(store.topic.length > 20 ? store.topic.substring(0, 20) + '...' : store.topic)
+    }
+    
+    // 确保所有图片都已生成（只保存成功生成的图片）
+    const completedImages = store.images.filter(img => img.status === 'done' && img.url)
+    
+    if (completedImages.length === 0) {
+      console.warn('⚠️ ResultView: 没有成功生成的图片，跳过历史记录保存')
+      return
+    }
+    
+    // 使用已有的recordId，如果没有则创建新的
+    const recordId = store.recordId || uuidv4()
+    
+    const historyItem = {
+      id: recordId,
+      topic: store.topic,
+      projectName: store.projectName,
+      projectDescription: store.projectDescription,
+      outline: store.outline.raw,
+      pages: store.outline.pages.map((page, idx) => ({
+        index: page.index,
+        title: page.type === 'cover' ? '封面' : `第${idx}页`,
+        content: page.content,
+        imageUrl: store.images.find(img => img.index === page.index && img.status === 'done')?.url, // 只保存成功生成的图片
+        imagePrompt: (page as any).imagePrompt || undefined
+      })),
+      originalImageUrl: completedImages[0]?.url || '',
+      generatedImageUrl: completedImages[0]?.url || '', // 确保包含生成的图片
+      status: 'COMPLETED' as const,
+      createdAt: Date.now(),
+      userId: userId,
+      mode: ProcessingMode.TEXT_TO_IMAGE // 使用枚举值
+    }
+    
+    console.log('=== ResultView: 保存历史记录 ===', historyItem)
+    await saveHistoryItem(userId, historyItem)
+    console.log('=== ResultView: 历史记录保存完成 ===')
+    
+    // 更新store中的recordId
+    store.recordId = recordId
+    
+    // 验证保存
+    const { getUserHistory } = await import('../services/storage')
+    const savedHistory = getUserHistory(userId)
+    console.log('验证：当前用户的历史记录数量:', savedHistory.length)
+    if (savedHistory.length > 0) {
+      const latestRecord = savedHistory.find(h => h.id === recordId)
+      if (latestRecord) {
+        console.log('✅ 历史记录验证成功！记录ID:', recordId)
+      } else {
+        console.warn('⚠️ 历史记录验证：未找到对应记录，但保存操作已完成')
+      }
+    }
+  } catch (error) {
+    console.error('❌ ResultView: 保存历史记录时出错:', error)
+  }
+}
 
 const viewImage = (url: string) => {
   window.open(url, '_blank')
@@ -263,18 +308,92 @@ const downloadOne = (image: any) => {
   }
 }
 
-const downloadAll = () => {
-  store.images.forEach((image, index) => {
-    if (image.url) {
-      setTimeout(() => {
-        const link = document.createElement('a')
-        link.href = image.url
-        link.download = `redflow_page_${image.index + 1}.png`
-        link.click()
-      }, index * 300)
-    }
-  })
+// 一键下载文字和图片
+const downloadAllContent = () => {
+  try {
+    // 1. 先下载文字内容
+    downloadTextContent()
+    
+    // 2. 延迟下载图片，避免浏览器阻止多个下载
+    setTimeout(() => {
+      downloadAllImages()
+    }, 500)
+    
+    console.log('✅ 开始下载文字和图片')
+  } catch (error) {
+    console.error('❌ 下载失败:', error)
+    alert('下载失败: ' + (error as Error).message)
+  }
 }
+
+// 下载完整文字内容（从outline.pages提取，纯文本格式）
+const downloadTextContent = () => {
+  try {
+    // 从outline.pages中提取完整文字内容
+    let textContent = ''
+    
+    // 添加项目信息（可选）
+    if (store.projectName || store.topic) {
+      textContent += `${store.projectName || store.topic}\n\n`
+    }
+    
+    if (store.projectDescription) {
+      textContent += `${store.projectDescription}\n\n`
+      textContent += `${'='.repeat(50)}\n\n`
+    }
+    
+    // 添加每页内容
+    store.outline.pages.forEach((page, idx) => {
+      const pageTitle = page.type === 'cover' ? '封面' : `第${idx}页`
+      textContent += `【${pageTitle}】\n\n`
+      
+      if (page.content) {
+        textContent += `${page.content}\n\n`
+      }
+      
+      // 不包含配图建议，只包含文字内容
+      textContent += `${'-'.repeat(50)}\n\n`
+    })
+    
+    // 创建下载链接（纯文本格式）
+    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${store.projectName || store.topic || 'redflow'}_文字内容.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    
+    console.log('✅ 文字内容下载成功')
+  } catch (error) {
+    console.error('❌ 下载文字内容失败:', error)
+    alert('下载文字内容失败: ' + (error as Error).message)
+  }
+}
+
+// 下载所有图片
+const downloadAllImages = () => {
+  const imagesToDownload = store.images.filter(img => img.url && img.status === 'done')
+  
+  if (imagesToDownload.length === 0) {
+    console.warn('没有可下载的图片')
+    return
+  }
+  
+  imagesToDownload.forEach((image, index) => {
+    setTimeout(() => {
+      const link = document.createElement('a')
+      link.href = image.url
+      link.download = `${store.projectName || 'redflow'}_第${image.index + 1}页.png`
+      link.click()
+    }, index * 300)
+  })
+  
+  console.log(`✅ 开始下载 ${imagesToDownload.length} 张图片`)
+}
+
 
 const handleRegenerate = async (image: any) => {
   if (regeneratingIndex.value !== null) return
@@ -316,6 +435,34 @@ const handleRegenerate = async (image: any) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn-download-all {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-download-all:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
 }
 
 .page-title {

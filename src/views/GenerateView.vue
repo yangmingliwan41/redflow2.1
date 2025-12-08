@@ -19,6 +19,13 @@
         >
           {{ isRetrying ? '补全中...' : '一键补全失败图片' }}
         </Button>
+        <Button
+          v-if="!isGenerating && store.progress.status === 'done' && store.recordId"
+          variant="primary"
+          @click="handleRegenerateAll"
+        >
+          重新生成全部图片
+        </Button>
         <Button variant="secondary" @click="router.push('/text-outline')">
           返回大纲
         </Button>
@@ -91,6 +98,15 @@
         </div>
       </div>
     </Card>
+
+    <!-- 完成提示模态框 -->
+    <CompletionModal
+      :visible="showCompletionModal"
+      :initial-project-name="store.projectName || store.topic"
+      :initial-project-description="store.projectDescription"
+      @confirm="handleCompletionConfirm"
+      @cancel="handleCompletionCancel"
+    />
   </PageContainer>
 </template>
 
@@ -104,12 +120,14 @@ import { ProcessingMode, ProcessingStatus } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 import { PageContainer, PageHeader } from '../components/layout'
 import { Button, Card, Progress } from '../components/ui'
+import CompletionModal from '../components/CompletionModal.vue'
 
 const router = useRouter()
 const store = useTextGeneratorStore()
 
 const error = ref('')
 const isRetrying = ref(false)
+const showCompletionModal = ref(false)
 
 const isGenerating = computed(() => store.progress.status === 'generating')
 
@@ -161,6 +179,30 @@ async function retrySingleImage(index: number) {
 // 重新生成图片
 function regenerateImage(index: number) {
   retrySingleImage(index)
+}
+
+// 重新生成全部图片（从历史记录返回时使用）
+const handleRegenerateAll = () => {
+  if (!confirm('确定要重新生成全部图片吗？这将重新调用API并可能产生费用。')) {
+    return
+  }
+  
+  // 重置所有图片状态
+  store.images.forEach(img => {
+    store.updateProgress(img.index, 'generating')
+  })
+  
+  // 重置进度状态
+  store.progress.status = 'generating'
+  store.progress.current = 0
+  
+  // 清除recordId，允许重新保存
+  store.recordId = null
+  
+  // 开始生成任务
+  if (!generationTask && !isGeneratingTask) {
+    generationTask = startGenerationTask()
+  }
 }
 
 // 批量重试所有失败的图片
@@ -272,15 +314,15 @@ const startGenerationTask = async () => {
   }
 }
 
-// 使用 watch 监听生成完成状态并保存历史记录（改用 watch 替代 watchEffect，更精确控制）
+// 使用 watch 监听生成完成状态并保存历史记录
 // 添加防抖标记，避免重复执行
 let isSavingHistory = false
 let lastCheckTime = 0
 
-// 使用 watch 替代 watchEffect，只监听必要的状态变化
+// 监听图片状态变化，当所有图片都生成完成时，保存历史记录并跳转
 watch(
-  () => [store.images.length, store.progress.status, store.recordId],
-  async ([imagesLength, progressStatus, recordId]) => {
+  () => store.images.map(img => img.status),
+  async (statuses) => {
     // 防抖：至少间隔 1 秒才检查一次
     const now = Date.now()
     if (now - lastCheckTime < 1000) {
@@ -288,64 +330,157 @@ watch(
     }
     lastCheckTime = now
 
-    const allSucceeded = store.images.length > 0 && store.images.every(img => img.status === 'done')
-    const isGenerating = progressStatus === 'generating'
+    // 检查是否所有图片都已完成（done状态且有URL）
+    const allSucceeded = store.images.length > 0 && 
+                        store.images.length === store.outline.pages.length &&
+                        store.images.every(img => img.status === 'done' && img.url)
+    
+    // 检查是否正在生成中或已完成（避免在未开始生成时就触发，但允许在完成后触发）
+    const isValidState = store.progress.status === 'generating' || 
+                         (store.progress.status === 'done' && !store.recordId) // 如果已完成但未保存记录，也允许保存
     
     console.log('watch 触发检查:', {
       allSucceeded,
-      isGenerating,
-      hasRecordId: !!recordId,
-      isSavingHistory,
-      imagesLength,
-      progressStatus
+      isValidState,
+      imagesCount: store.images.length,
+      pagesCount: store.outline.pages.length,
+      statuses: statuses.join(','),
+      progressStatus: store.progress.status,
+      hasRecordId: !!store.recordId,
+      isSavingHistory
     })
     
-    if (allSucceeded && isGenerating && !isSavingHistory) {
-      console.log('=== 检测到全部生成成功，准备保存历史记录并跳转结果页 ===')
+    // 如果所有图片都生成成功，且当前状态有效，且未在保存中，且还没有保存过记录
+    if (allSucceeded && isValidState && !isSavingHistory && !store.recordId && !showCompletionModal.value) {
+      console.log('=== 检测到全部生成成功，显示完成提示模态框 ===')
       isSavingHistory = true // 设置标记，防止重复执行
       
-      try {
-        const taskId = 'task_' + Date.now()
-        store.finishGeneration(taskId)
-        
-        // 保存到历史记录
-        const user = getCurrentUser()
-        
-        if (!user) {
-          console.error('❌ 未找到用户，无法保存历史记录')
-          // 自动创建默认用户
-          try {
-            const defaultUser = registerUser('default_user', 'default@example.com')
-            console.log('已创建默认用户:', defaultUser.id)
-            loginUser(defaultUser.email)
-            
-            await saveHistoryToUser(defaultUser.id)
-          } catch (e) {
-            console.error('创建默认用户失败:', e)
-          }
-          return
-        }
-        
-        // 如果之前已经保存过一次 history（recordId 存在），这里仅更新项目名称/描述等，不重复写入太多条
-        await saveHistoryToUser(user.id)
-        
-        // 无论之前是否有失败过，只要此时全部成功，就跳转到结果页
-        setTimeout(() => {
-          router.push('/text-result')
-        }, 800)
-      } catch (error) {
-        console.error('保存历史记录时出错:', error)
-      } finally {
-        // 延迟重置标记，确保不会立即再次触发
-        setTimeout(() => {
-          isSavingHistory = false
-          console.log('isSavingHistory 标记已重置')
-        }, 3000) // 增加到3秒，更安全
-      }
+      // 标记生成完成（这会改变 progress.status 为 'done'）
+      const taskId = 'task_' + Date.now()
+      store.finishGeneration(taskId)
+      
+      // 显示完成提示模态框
+      showCompletionModal.value = true
+      
+      // 延迟重置标记
+      setTimeout(() => {
+        isSavingHistory = false
+        console.log('isSavingHistory 标记已重置')
+      }, 2000)
     }
   },
-  { immediate: false } // 不立即执行，只在值变化时执行
+  { deep: true, immediate: false } // 深度监听，不立即执行
 )
+
+// 处理完成提示模态框确认
+const handleCompletionConfirm = async (data: { projectName: string; projectDescription: string }) => {
+  try {
+    // 更新项目信息
+    store.setProjectName(data.projectName)
+    store.setProjectDescription(data.projectDescription)
+    
+    // 保存历史记录
+    let currentUser = getCurrentUser()
+    let userIdToUse: string
+    
+    if (!currentUser) {
+      console.error('❌ 未找到用户，无法保存历史记录')
+      // 自动创建默认用户
+      try {
+        const defaultUser = registerUser('default_user', 'default@example.com')
+        console.log('已创建默认用户:', defaultUser.id)
+        loginUser(defaultUser.email)
+        currentUser = defaultUser
+        userIdToUse = defaultUser.id
+        await saveHistoryToUser(defaultUser.id)
+      } catch (e: any) {
+        console.error('创建默认用户失败:', e)
+        // 如果用户已存在，尝试登录
+        if (e.message && e.message.includes('Email already exists')) {
+          try {
+            const existingUser = loginUser('default@example.com')
+            console.log('使用已存在的默认用户:', existingUser.id)
+            currentUser = existingUser
+            userIdToUse = existingUser.id
+            await saveHistoryToUser(existingUser.id)
+          } catch (loginError) {
+            console.error('登录默认用户失败:', loginError)
+            alert('保存失败：无法创建或登录用户')
+            return
+          }
+        } else {
+          alert('保存失败：无法创建用户')
+          return
+        }
+      }
+    } else {
+      userIdToUse = currentUser.id
+      await saveHistoryToUser(currentUser.id)
+    }
+    
+    // 验证保存是否成功（使用正确的用户ID）
+    const { getUserHistory } = await import('../services/storage')
+    const savedHistory = getUserHistory(userIdToUse)
+    console.log('=== 验证保存结果 ===')
+    console.log('使用的用户ID:', userIdToUse)
+    console.log('历史记录数量:', savedHistory.length)
+    console.log('查找的recordId:', store.recordId)
+    
+    if (savedHistory.length > 0) {
+      console.log('历史记录中的ID列表:', savedHistory.map(h => ({ id: h.id, projectName: h.projectName })))
+    }
+    
+    const savedRecord = savedHistory.find(h => h.id === store.recordId)
+    
+    if (savedRecord) {
+      console.log('✅ 历史记录保存并验证成功！记录ID:', store.recordId)
+      console.log('保存的记录:', {
+        id: savedRecord.id,
+        projectName: savedRecord.projectName,
+        topic: savedRecord.topic,
+        pagesCount: savedRecord.pages?.length || 0
+      })
+    } else {
+      console.error('❌ 历史记录保存后验证失败！')
+      console.error('查找的recordId:', store.recordId)
+      console.error('历史记录中的ID列表:', savedHistory.map(h => h.id))
+      console.error('可能的原因：用户ID不一致或保存失败')
+      
+      // 尝试检查所有可能的用户ID
+      const allUsersStr = localStorage.getItem('redflow_users')
+      if (allUsersStr) {
+        const allUsers = JSON.parse(allUsersStr)
+        console.log('所有用户列表:', allUsers.map((u: any) => ({ id: u.id, email: u.email })))
+        for (const u of allUsers) {
+          const userHistory = getUserHistory(u.id)
+          const found = userHistory.find(h => h.id === store.recordId)
+          if (found) {
+            console.log(`✅ 在用户 ${u.id} 的历史记录中找到记录！`)
+            console.log('建议：确保使用正确的用户ID保存和读取')
+          }
+        }
+      }
+    }
+    
+    // 关闭模态框并跳转到结果页
+    showCompletionModal.value = false
+    setTimeout(() => {
+      router.push('/text-result')
+    }, 300)
+  } catch (error) {
+    console.error('保存历史记录时出错:', error)
+    alert('保存失败：' + (error as Error).message)
+  }
+}
+
+// 处理完成提示模态框取消
+const handleCompletionCancel = () => {
+  showCompletionModal.value = false
+  // 取消后仍然跳转到结果页，但不保存历史记录
+  setTimeout(() => {
+    router.push('/text-result')
+  }, 300)
+}
 
 // 提取保存历史记录的逻辑
 const saveHistoryToUser = async (userId: string) => {
@@ -363,9 +498,15 @@ const saveHistoryToUser = async (userId: string) => {
       return
     }
     
+    // 确保有recordId（如果没有则创建并保存到store）
+    const recordId = store.recordId || uuidv4()
+    if (!store.recordId) {
+      store.recordId = recordId
+    }
+    
     // 构建历史记录项
     const historyItem = {
-      id: store.recordId || uuidv4(),
+      id: recordId,
       topic: store.topic,
       projectName: store.projectName,
       projectDescription: store.projectDescription,
@@ -386,22 +527,27 @@ const saveHistoryToUser = async (userId: string) => {
     }
     
     console.log('=== GenerateView: 准备保存历史记录 ===')
-    console.log('历史记录项:', historyItem)
+    console.log('历史记录项ID:', historyItem.id)
     console.log('用户ID:', userId)
+    console.log('项目名称:', historyItem.projectName)
+    console.log('页面数量:', historyItem.pages.length)
+    console.log('图片数量:', completedImages.length)
     
     await saveHistoryItem(userId, historyItem)
     
     console.log('=== GenerateView: 历史记录保存完成 ===')
-    store.recordId = historyItem.id
     
     // 验证保存
-    const { getUserHistory } = await import('../services/storage')
-    const savedHistory = getUserHistory(userId)
-    console.log('验证：当前用户的历史记录数量:', savedHistory.length)
-    if (savedHistory.length > 0) {
-      console.log('✅ 历史记录验证成功！最新记录:', savedHistory[0])
+    const { getUserHistory: verifyGetUserHistory } = await import('../services/storage')
+    const verifyHistory = verifyGetUserHistory(userId)
+    console.log('验证：当前用户的历史记录数量:', verifyHistory.length)
+    const verifyRecord = verifyHistory.find(h => h.id === recordId)
+    if (verifyRecord) {
+      console.log('✅ 历史记录验证成功！记录ID:', recordId)
     } else {
       console.error('❌ 历史记录验证失败：保存后未找到记录')
+      console.error('查找的recordId:', recordId)
+      console.error('历史记录中的ID列表:', verifyHistory.map(h => h.id))
     }
   } catch (error) {
     console.error('❌ 保存历史记录时出错:', error)
@@ -447,7 +593,22 @@ onMounted(async () => {
     store.progress.status = 'idle'
   }
 
-  // 如果已经在生成中，继续生成；否则启动新任务
+  // 检查是否是从历史记录返回的（已有recordId且状态是done，且所有图片都已完成且有URL）
+  const isFromHistory = store.recordId && 
+                         store.progress.status === 'done' && 
+                         store.images.length > 0 && 
+                         store.images.every(img => img.status === 'done' && img.url)
+  
+  if (isFromHistory) {
+    console.log('=== 检测到从历史记录返回，不自动开始生成 ===')
+    console.log('recordId:', store.recordId)
+    console.log('状态:', store.progress.status)
+    console.log('图片数量:', store.images.length)
+    // 不自动开始生成，等待用户点击"重新生成"按钮
+    return
+  }
+
+  // 如果已经在生成中，继续生成
   if (store.progress.status === 'generating' && !allStuck) {
     console.log('检测到未完成的生成任务，继续生成...')
     // 检查是否有正在生成的任务
@@ -456,13 +617,26 @@ onMounted(async () => {
     } else {
       console.log('已有生成任务在运行，等待完成...')
     }
-  } else {
+  } else if (store.progress.status === 'idle' || store.images.length === 0) {
+    // 新任务：从大纲进入（状态是idle或没有图片），需要初始化并开始生成
+    console.log('=== 检测到新任务（从大纲进入），准备开始生成 ===')
+    console.log('recordId:', store.recordId)
+    console.log('状态:', store.progress.status)
+    console.log('图片数量:', store.images.length)
+    
+    // 初始化生成状态
+    store.startGeneration()
+    
     // 确保没有正在运行的任务
     if (!generationTask && !isGeneratingTask) {
       generationTask = startGenerationTask()
     } else {
       console.warn('⚠️ 检测到已有任务在运行，跳过新任务启动')
     }
+  } else {
+    console.log('当前状态:', store.progress.status, '，不自动开始生成')
+    console.log('recordId:', store.recordId)
+    console.log('图片数量:', store.images.length)
   }
 })
 </script>
